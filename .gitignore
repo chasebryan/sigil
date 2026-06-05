@@ -1,0 +1,7 @@
+.cache/
+bin/
+dist/
+*.sigil
+*.seal
+*.sealed
+.DS_Store
