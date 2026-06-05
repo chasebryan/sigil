@@ -10,7 +10,7 @@ Sigil is intentionally conservative: it uses Go standard-library cryptography,
 does not introduce new primitives, and keeps GUI processing inside the local
 Sigil process.
 
-![Sigil GUI concept](docs/assets/sigil-gui-concept.png)
+![Sigil GUI screenshot](docs/assets/sigil-gui-screenshot.png)
 
 ## Quick Start
 
