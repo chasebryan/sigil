@@ -537,6 +537,20 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               </button>
             </div>
           </div>
+          <div class="result-summary" id="result-summary">
+            <div class="summary-item">
+              <span class="summary-label">Status</span>
+              <span class="summary-value">Ready</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Scope</span>
+              <span class="summary-value">Local process</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Output</span>
+              <span class="summary-value">JSON</span>
+            </div>
+          </div>
           <pre id="result-output">{
   "status": "ready",
   "scope": "local"

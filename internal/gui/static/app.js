@@ -7,6 +7,7 @@ const title = document.getElementById("tool-title");
 const subtitle = document.getElementById("tool-subtitle");
 const output = document.getElementById("result-output");
 const resultMeta = document.getElementById("result-meta");
+const resultSummaryPanel = document.getElementById("result-summary");
 const activityLog = document.getElementById("activity-log");
 const analysisStrip = document.getElementById("analysis-strip");
 const copyButton = document.getElementById("copy-result");
@@ -19,15 +20,15 @@ let lastResult = `{
 }`;
 
 const tools = [
-  { id: "digest", label: "Digest", subtitle: "SHA-2 and SHA-3 message fingerprints", group: "Analysis" },
-  { id: "hmac", label: "HMAC", subtitle: "Keyed authentication tags", group: "Analysis" },
-  { id: "entropy", label: "Entropy", subtitle: "Byte distribution and randomness inspection", group: "Analysis" },
-  { id: "xor", label: "XOR", subtitle: "Fixed and repeating XOR transforms", group: "Analysis" },
-  { id: "random", label: "Random", subtitle: "CSPRNG bytes and passphrases", group: "Material" },
-  { id: "keys", label: "Keys", subtitle: "Ed25519 key material", group: "Material" },
-  { id: "sign", label: "Sign", subtitle: "Ed25519 signatures", group: "Signatures" },
-  { id: "verify", label: "Verify", subtitle: "Ed25519 signature checks", group: "Signatures" },
-  { id: "seal", label: "Seal", subtitle: "AES-256-GCM authenticated file envelopes", group: "Envelope" }
+  { id: "digest", label: "Digest", subtitle: "SHA-2 and SHA-3 message fingerprints", group: "Analysis", icon: "hash" },
+  { id: "hmac", label: "HMAC", subtitle: "Keyed authentication tags", group: "Analysis", icon: "mac" },
+  { id: "entropy", label: "Entropy", subtitle: "Byte distribution and randomness inspection", group: "Analysis", icon: "entropy" },
+  { id: "xor", label: "XOR", subtitle: "Fixed and repeating XOR transforms", group: "Analysis", icon: "xor" },
+  { id: "random", label: "Random", subtitle: "CSPRNG bytes and passphrases", group: "Material", icon: "random" },
+  { id: "keys", label: "Keys", subtitle: "Ed25519 key material", group: "Material", icon: "key" },
+  { id: "sign", label: "Sign", subtitle: "Ed25519 signatures", group: "Signatures", icon: "sign" },
+  { id: "verify", label: "Verify", subtitle: "Ed25519 signature checks", group: "Signatures", icon: "verify" },
+  { id: "seal", label: "Seal", subtitle: "AES-256-GCM authenticated file envelopes", group: "Envelope", icon: "seal" }
 ];
 
 function init() {
@@ -58,6 +59,7 @@ function toolButton(tool, className) {
   button.type = "button";
   button.className = className;
   button.dataset.tool = tool.id;
+  button.appendChild(toolIcon(tool.icon));
   const label = document.createElement("span");
   label.className = "tool-label";
   label.textContent = tool.label;
@@ -394,6 +396,7 @@ function showResult(data, toolId) {
   lastResult = JSON.stringify(data, null, 2);
   output.textContent = lastResult;
   resultMeta.textContent = resultSummary(data, toolId);
+  renderResultSummary(data, toolId);
   renderChips(data, toolId);
 }
 
@@ -402,6 +405,7 @@ function showError(error) {
   lastResult = JSON.stringify(data, null, 2);
   output.textContent = lastResult;
   resultMeta.textContent = "Operation rejected";
+  renderSummaryItems([["Status", "Rejected"], ["Reason", error.message]], "bad");
   analysisStrip.textContent = "";
   const chip = document.createElement("span");
   chip.className = "chip bad";
@@ -409,6 +413,151 @@ function showError(error) {
   analysisStrip.appendChild(chip);
   logActivity("Operation rejected");
 }
+
+function renderResultSummary(data, toolId) {
+  if (toolId === "digest" || toolId === "hmac") {
+    renderSummaryItems([
+      ["Algorithm", data.algorithm.name],
+      ["Input", `${data.size} bytes`],
+      ["Strength", data.algorithm.deprecated ? "Deprecated" : `${data.algorithm.bits} bit`],
+      [toolId === "digest" ? "Digest" : "MAC", data.hex, "mono"]
+    ]);
+  } else if (toolId === "entropy") {
+    renderSummaryItems([
+      ["Entropy", `${data.shannonBitsPerByte} bits/byte`],
+      ["Unique", `${data.uniqueBytes} bytes`],
+      ["Chi-square", String(data.chiSquare)],
+      ["Assessment", data.assessment]
+    ]);
+  } else if (toolId === "random") {
+    renderSummaryItems(data.kind === "password" ? [
+      ["Kind", "Password"],
+      ["Length", `${data.length} chars`],
+      ["Source", "CSPRNG"]
+    ] : [
+      ["Kind", "Bytes"],
+      ["Size", `${data.size} bytes`],
+      ["Encoding", data.encoding],
+      ["Value", data.value, "mono"]
+    ]);
+  } else if (toolId === "xor") {
+    renderSummaryItems([
+      ["Size", `${data.size} bytes`],
+      ["Encoding", data.encoding],
+      ["Output", data.value, "mono"]
+    ]);
+  } else if (toolId === "keys") {
+    renderSummaryItems([
+      ["Algorithm", "Ed25519"],
+      ["Public key", data.publicKeyBase64, "mono"],
+      ["Private format", "PKCS#8 PEM"]
+    ]);
+  } else if (toolId === "sign") {
+    renderSummaryItems([
+      ["Algorithm", data.algorithm],
+      ["Message", `${data.size} bytes`],
+      ["Signature", data.signature, "mono"]
+    ]);
+  } else if (toolId === "verify") {
+    renderSummaryItems([
+      ["Verdict", data.valid ? "Valid" : "Invalid"],
+      ["Algorithm", data.algorithm],
+      ["Message", `${data.size} bytes`]
+    ], data.valid ? "strong" : "bad");
+  } else if (toolId === "seal") {
+    renderSummaryItems(data.sealedSize ? [
+      ["Envelope", data.info.algorithm],
+      ["Input", `${data.inputSize} bytes`],
+      ["Sealed", `${data.sealedSize} bytes`],
+      ["KDF", data.info.kdf]
+    ] : [
+      ["Envelope", data.info.algorithm],
+      ["Plaintext", `${data.plainSize} bytes`],
+      ["KDF", data.info.kdf],
+      ["Output", data.encoding]
+    ]);
+  } else {
+    renderSummaryItems([["Status", "Complete"], ["Output", "JSON"]]);
+  }
+}
+
+function renderSummaryItems(items, tone = "") {
+  resultSummaryPanel.textContent = "";
+  for (const [label, value, variant] of items) {
+    const item = document.createElement("div");
+    item.className = `summary-item ${tone}`.trim();
+    const labelEl = document.createElement("span");
+    labelEl.className = "summary-label";
+    labelEl.textContent = label;
+    const valueEl = document.createElement("span");
+    valueEl.className = `summary-value ${variant || ""}`.trim();
+    valueEl.textContent = value;
+    item.append(labelEl, valueEl);
+    resultSummaryPanel.appendChild(item);
+  }
+}
+
+function toolIcon(kind) {
+  const icon = document.createElement("span");
+  icon.className = "tool-icon";
+  icon.setAttribute("aria-hidden", "true");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("focusable", "false");
+  const shapes = iconShapes[kind] || iconShapes.hash;
+  for (const shape of shapes) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", shape.tag);
+    for (const [name, value] of Object.entries(shape.attrs)) {
+      node.setAttribute(name, value);
+    }
+    svg.appendChild(node);
+  }
+  icon.appendChild(svg);
+  return icon;
+}
+
+const iconShapes = {
+  hash: [
+    { tag: "path", attrs: { d: "M8 4 6.5 20M17.5 4 16 20M4 9h16M3 15h16" } }
+  ],
+  mac: [
+    { tag: "path", attrs: { d: "M7 11V8a5 5 0 0 1 10 0v3" } },
+    { tag: "rect", attrs: { x: "5", y: "11", width: "14", height: "9", rx: "2" } },
+    { tag: "path", attrs: { d: "M12 15v2" } }
+  ],
+  entropy: [
+    { tag: "path", attrs: { d: "M4 17h16M6 17V9M12 17V5M18 17v-6" } },
+    { tag: "circle", attrs: { cx: "6", cy: "7", r: "1.4" } },
+    { tag: "circle", attrs: { cx: "12", cy: "3", r: "1.4" } },
+    { tag: "circle", attrs: { cx: "18", cy: "9", r: "1.4" } }
+  ],
+  xor: [
+    { tag: "path", attrs: { d: "M6 6l12 12M18 6 6 18" } },
+    { tag: "circle", attrs: { cx: "12", cy: "12", r: "8" } }
+  ],
+  random: [
+    { tag: "rect", attrs: { x: "5", y: "5", width: "14", height: "14", rx: "3" } },
+    { tag: "circle", attrs: { cx: "9", cy: "9", r: "1" } },
+    { tag: "circle", attrs: { cx: "15", cy: "9", r: "1" } },
+    { tag: "circle", attrs: { cx: "9", cy: "15", r: "1" } },
+    { tag: "circle", attrs: { cx: "15", cy: "15", r: "1" } }
+  ],
+  key: [
+    { tag: "circle", attrs: { cx: "8", cy: "8", r: "4" } },
+    { tag: "path", attrs: { d: "m11 11 8 8M15 15l2-2M17 17l2-2" } }
+  ],
+  sign: [
+    { tag: "path", attrs: { d: "M5 19h14M7 15l7.5-7.5a2.1 2.1 0 0 1 3 3L10 18H7v-3Z" } }
+  ],
+  verify: [
+    { tag: "path", attrs: { d: "M20 7 10 17l-5-5" } },
+    { tag: "path", attrs: { d: "M12 3.5 19 7v5c0 4.2-2.8 7.5-7 8.5-4.2-1-7-4.3-7-8.5V7l7-3.5Z" } }
+  ],
+  seal: [
+    { tag: "path", attrs: { d: "M12 3.5 19 7v5c0 4.2-2.8 7.5-7 8.5-4.2-1-7-4.3-7-8.5V7l7-3.5Z" } },
+    { tag: "path", attrs: { d: "M9 12h6M12 9v6" } }
+  ]
+};
 
 function resultSummary(data, toolId) {
   if (data.error) return "Rejected";
