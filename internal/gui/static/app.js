@@ -2,7 +2,6 @@
 
 const token = document.querySelector("meta[name='sigil-token']").content;
 const nav = document.getElementById("tool-nav");
-const tabs = document.getElementById("tool-tabs");
 const form = document.getElementById("operation-form");
 const title = document.getElementById("tool-title");
 const subtitle = document.getElementById("tool-subtitle");
@@ -14,18 +13,21 @@ const copyButton = document.getElementById("copy-result");
 const saveButton = document.getElementById("save-result");
 
 let activeTool = "digest";
-let lastResult = "{}";
+let lastResult = `{
+  "status": "ready",
+  "scope": "local"
+}`;
 
 const tools = [
-  { id: "digest", label: "Digest", subtitle: "SHA-2 and SHA-3 message fingerprints" },
-  { id: "hmac", label: "HMAC", subtitle: "Keyed authentication tags" },
-  { id: "entropy", label: "Entropy", subtitle: "Byte distribution and randomness inspection" },
-  { id: "random", label: "Random", subtitle: "CSPRNG bytes and passphrases" },
-  { id: "xor", label: "XOR", subtitle: "Fixed and repeating XOR transforms" },
-  { id: "keys", label: "Keys", subtitle: "Ed25519 key material" },
-  { id: "sign", label: "Sign", subtitle: "Ed25519 signatures" },
-  { id: "verify", label: "Verify", subtitle: "Ed25519 signature checks" },
-  { id: "seal", label: "Seal", subtitle: "AES-256-GCM authenticated file envelopes" }
+  { id: "digest", label: "Digest", subtitle: "SHA-2 and SHA-3 message fingerprints", group: "Analysis" },
+  { id: "hmac", label: "HMAC", subtitle: "Keyed authentication tags", group: "Analysis" },
+  { id: "entropy", label: "Entropy", subtitle: "Byte distribution and randomness inspection", group: "Analysis" },
+  { id: "xor", label: "XOR", subtitle: "Fixed and repeating XOR transforms", group: "Analysis" },
+  { id: "random", label: "Random", subtitle: "CSPRNG bytes and passphrases", group: "Material" },
+  { id: "keys", label: "Keys", subtitle: "Ed25519 key material", group: "Material" },
+  { id: "sign", label: "Sign", subtitle: "Ed25519 signatures", group: "Signatures" },
+  { id: "verify", label: "Verify", subtitle: "Ed25519 signature checks", group: "Signatures" },
+  { id: "seal", label: "Seal", subtitle: "AES-256-GCM authenticated file envelopes", group: "Envelope" }
 ];
 
 function init() {
@@ -38,10 +40,16 @@ function init() {
 
 function renderNavigation() {
   nav.textContent = "";
-  tabs.textContent = "";
+  let currentGroup = "";
   for (const tool of tools) {
+    if (tool.group !== currentGroup) {
+      currentGroup = tool.group;
+      const group = document.createElement("div");
+      group.className = "nav-group-label";
+      group.textContent = currentGroup;
+      nav.appendChild(group);
+    }
     nav.appendChild(toolButton(tool, "tool-button"));
-    tabs.appendChild(toolButton(tool, "tab-button"));
   }
 }
 
@@ -50,7 +58,10 @@ function toolButton(tool, className) {
   button.type = "button";
   button.className = className;
   button.dataset.tool = tool.id;
-  button.textContent = tool.label;
+  const label = document.createElement("span");
+  label.className = "tool-label";
+  label.textContent = tool.label;
+  button.appendChild(label);
   button.addEventListener("click", () => renderTool(tool.id));
   return button;
 }
@@ -75,56 +86,99 @@ function renderTool(id) {
 
 function toolFields(id) {
   const fragment = document.createDocumentFragment();
-  const grid = document.createElement("div");
-  grid.className = "field-grid";
+  const stack = document.createElement("div");
+  stack.className = "form-stack";
 
   if (id === "digest") {
-    grid.append(dataField("Input", "data", "encoding"));
-    grid.append(selectField("Algorithm", "algorithm", hashOptions(["sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512", "sha1", "md5"]), "sha256"));
-    grid.append(actionRow("Compute digest"));
+    stack.append(sectionBlock("Input", [dataField("Message or file", "data", "encoding")]));
+    stack.append(sectionBlock("Parameters", [selectField("Algorithm", "algorithm", hashOptions(["sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512", "sha1", "md5"]), "sha256")]));
+    stack.append(actionRow("Compute digest"));
   } else if (id === "hmac") {
-    grid.append(dataField("Message", "data", "encoding"));
-    grid.append(textField("Key material", "key", "textarea"));
-    grid.append(selectField("Key encoding", "keyEncoding", ["hex", "base64", "text"], "hex"));
-    grid.append(selectField("Algorithm", "algorithm", hashOptions(["sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512"]), "sha256"));
-    grid.append(actionRow("Compute HMAC"));
+    stack.append(sectionBlock("Message", [dataField("Message or file", "data", "encoding")]));
+    stack.append(sectionBlock("Key", [textField("Key material", "key", "textarea")]));
+    stack.append(sectionBlock("Parameters", [
+      selectField("Key encoding", "keyEncoding", ["hex", "base64", "text"], "hex"),
+      selectField("Algorithm", "algorithm", hashOptions(["sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512"]), "sha256")
+    ]));
+    stack.append(actionRow("Compute HMAC"));
   } else if (id === "entropy") {
-    grid.append(dataField("Sample", "data", "encoding"));
-    grid.append(actionRow("Analyze entropy"));
+    stack.append(sectionBlock("Sample", [dataField("Bytes or file", "data", "encoding")]));
+    stack.append(actionRow("Analyze entropy"));
   } else if (id === "random") {
-    grid.append(selectField("Material", "kind", ["bytes", "password"], "bytes"));
-    grid.append(numberField("Size", "size", 32, 1, 1048576));
-    grid.append(selectField("Output", "output", ["hex", "base64"], "hex"));
-    grid.append(actionRow("Generate"));
+    stack.append(sectionBlock("Material", [
+      selectField("Kind", "kind", ["bytes", "password"], "bytes"),
+      numberField("Size", "size", 32, 1, 1048576),
+      selectField("Output", "output", ["hex", "base64"], "hex")
+    ]));
+    stack.append(actionRow("Generate"));
   } else if (id === "xor") {
-    grid.append(textField("Left", "left", "textarea"));
-    grid.append(textField("Right or key", "right", "textarea"));
-    grid.append(selectField("Mode", "mode", ["fixed", "repeating"], "fixed"));
-    grid.append(selectField("Input encoding", "encoding", ["hex", "base64", "text"], "hex"));
-    grid.append(selectField("Output", "output", ["hex", "base64", "text"], "hex"));
-    grid.append(actionRow("Run XOR"));
+    stack.append(sectionBlock("Operands", [
+      textField("Left", "left", "textarea"),
+      textField("Right or key", "right", "textarea")
+    ]));
+    stack.append(sectionBlock("Parameters", [
+      selectField("Mode", "mode", ["fixed", "repeating"], "fixed"),
+      selectField("Input encoding", "encoding", ["hex", "base64", "text"], "hex"),
+      selectField("Output", "output", ["hex", "base64", "text"], "hex")
+    ]));
+    stack.append(actionRow("Run XOR"));
   } else if (id === "keys") {
-    grid.append(actionRow("Generate Ed25519 pair"));
+    stack.append(sectionBlock("Keypair", [readOnlyLine("Algorithm", "Ed25519")]));
+    stack.append(actionRow("Generate Ed25519 pair"));
   } else if (id === "sign") {
-    grid.append(textField("Private key PEM", "privatePem", "textarea"));
-    grid.append(dataField("Message", "data", "encoding"));
-    grid.append(actionRow("Sign message"));
+    stack.append(sectionBlock("Private key", [textField("Private key PEM", "privatePem", "textarea")]));
+    stack.append(sectionBlock("Message", [dataField("Message or file", "data", "encoding")]));
+    stack.append(actionRow("Sign message"));
   } else if (id === "verify") {
-    grid.append(textField("Public key PEM", "publicPem", "textarea"));
-    grid.append(textField("Signature base64", "signature", "textarea"));
-    grid.append(dataField("Message", "data", "encoding"));
-    grid.append(actionRow("Verify signature"));
+    stack.append(sectionBlock("Public proof", [
+      textField("Public key PEM", "publicPem", "textarea"),
+      textField("Signature base64", "signature", "textarea")
+    ]));
+    stack.append(sectionBlock("Message", [dataField("Message or file", "data", "encoding")]));
+    stack.append(actionRow("Verify signature"));
   } else if (id === "seal") {
-    grid.append(selectField("Operation", "sealAction", ["seal", "open"], "seal"));
-    grid.append(secretField("Passphrase", "passphrase"));
-    grid.append(numberField("PBKDF2 iterations", "iterations", 600000, 100000, 5000000));
-    grid.append(selectField("Open output", "output", ["base64", "text", "hex"], "base64"));
-    grid.append(dataField("Plaintext or sealed base64", "data", "encoding"));
-    grid.append(actionRow("Run seal operation"));
+    stack.append(sectionBlock("Envelope", [
+      selectField("Operation", "sealAction", ["seal", "open"], "seal"),
+      secretField("Passphrase", "passphrase")
+    ]));
+    stack.append(sectionBlock("Parameters", [
+      numberField("PBKDF2 iterations", "iterations", 600000, 100000, 5000000),
+      selectField("Open output", "output", ["base64", "text", "hex"], "base64")
+    ]));
+    stack.append(sectionBlock("Material", [dataField("Plaintext or sealed base64", "data", "encoding")]));
+    stack.append(actionRow("Run seal operation"));
   }
 
-  fragment.appendChild(grid);
+  fragment.appendChild(stack);
   return fragment;
+}
+
+function sectionBlock(titleText, fields) {
+  const section = document.createElement("section");
+  section.className = "form-section";
+  const heading = document.createElement("h2");
+  heading.className = "section-title";
+  heading.textContent = titleText;
+  const body = document.createElement("div");
+  body.className = "section-grid";
+  for (const field of fields) {
+    body.appendChild(field);
+  }
+  section.append(heading, body);
+  return section;
+}
+
+function readOnlyLine(labelText, valueText) {
+  const wrap = document.createElement("div");
+  wrap.className = "field read-only-field";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = labelText;
+  const value = document.createElement("span");
+  value.className = "read-only-value";
+  value.textContent = valueText;
+  wrap.append(label, value);
+  return wrap;
 }
 
 function hashOptions(values) {

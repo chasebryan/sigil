@@ -489,7 +489,16 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
   <div class="app-shell">
     <aside class="rail" aria-label="Primary">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">S</span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" focusable="false">
+            <path class="mark-ring" d="M16 3.5 26.8 9.75v12.5L16 28.5 5.2 22.25V9.75L16 3.5Z"/>
+            <path class="mark-ring inner" d="M16 9.2 21.85 12.6v6.8L16 22.8l-5.85-3.4v-6.8L16 9.2Z"/>
+            <path class="mark-stem" d="M16 9.2v13.6M10.15 12.6l11.7 6.8M21.85 12.6l-11.7 6.8"/>
+            <circle class="mark-dot" cx="16" cy="9.2" r="1.65"/>
+            <circle class="mark-dot" cx="10.15" cy="19.4" r="1.65"/>
+            <circle class="mark-dot" cx="21.85" cy="19.4" r="1.65"/>
+          </svg>
+        </span>
         <span>Sigil</span>
       </div>
       <nav class="tool-nav" id="tool-nav"></nav>
@@ -511,14 +520,13 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
       </header>
       <section class="work-grid">
         <div class="operation-panel">
-          <div class="tabs" id="tool-tabs"></div>
           <form id="operation-form" autocomplete="off"></form>
         </div>
         <aside class="result-panel" aria-live="polite">
           <div class="result-head">
             <div>
               <h2>Result</h2>
-              <p id="result-meta">No operation yet</p>
+              <p id="result-meta">Awaiting operation</p>
             </div>
             <div class="result-actions">
               <button class="icon-button" id="copy-result" type="button" title="Copy result" aria-label="Copy result">
@@ -529,7 +537,10 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               </button>
             </div>
           </div>
-          <pre id="result-output">{}</pre>
+          <pre id="result-output">{
+  "status": "ready",
+  "scope": "local"
+}</pre>
           <div class="analysis-strip" id="analysis-strip"></div>
           <div class="activity">
             <h3>Activity</h3>
