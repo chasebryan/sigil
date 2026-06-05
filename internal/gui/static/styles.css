@@ -115,6 +115,21 @@ button {
   fill: currentColor;
 }
 
+.mark-beacon {
+  opacity: 0.58;
+}
+
+.mark-pulse {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 0.9;
+}
+
+.mark-spark {
+  fill: currentColor;
+}
+
 .tool-nav {
   display: grid;
   gap: 6px;
@@ -214,6 +229,7 @@ button {
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .icon-button:focus-visible,
+.small-icon-button:focus-visible,
 .file-button:focus-within {
   outline: 0;
   border-color: var(--accent);
@@ -296,6 +312,14 @@ h1 {
   font-weight: 620;
 }
 
+.engine-strip .cipher-beacon {
+  border-color: rgba(0, 127, 115, 0.2);
+  background: rgba(230, 244, 241, 0.72);
+  color: var(--accent-dark);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}
+
 .work-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(380px, 0.88fr);
@@ -372,6 +396,37 @@ label,
   font-weight: 680;
 }
 
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.field-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.input-meter {
+  color: var(--faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.input-meter.warn {
+  color: var(--warning);
+}
+
+.input-meter.bad {
+  color: var(--danger);
+}
+
 textarea,
 input,
 select {
@@ -421,7 +476,24 @@ select:focus {
   font-size: 0.8rem;
 }
 
+.file-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
 .file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
@@ -430,6 +502,7 @@ select:focus {
   color: var(--text);
   font-size: 0.78rem;
   font-weight: 650;
+  cursor: pointer;
 }
 
 .hidden-file {
@@ -453,7 +526,8 @@ select:focus {
 
 .primary-button,
 .secondary-button,
-.icon-button {
+.icon-button,
+.small-icon-button {
   border: 1px solid var(--line-strong);
   border-radius: 7px;
   background: #fff;
@@ -475,9 +549,23 @@ select:focus {
   background: var(--accent-dark);
 }
 
+.secondary-button:hover,
+.icon-button:hover:not(:disabled),
+.small-icon-button:hover:not(:disabled),
+.file-button:hover {
+  border-color: var(--accent-line);
+  background: var(--panel-soft);
+}
+
 .primary-button:disabled {
   cursor: wait;
   opacity: 0.76;
+}
+
+.icon-button:disabled,
+.small-icon-button:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .secondary-button {
@@ -517,6 +605,14 @@ h2 {
   place-items: center;
   width: 34px;
   height: 34px;
+  padding: 0;
+}
+
+.small-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   padding: 0;
 }
 
@@ -572,12 +668,43 @@ h2 {
   font-size: 0.74rem;
 }
 
+.artifact-glyph,
 .copy-glyph,
-.save-glyph {
+.save-glyph,
+.clear-glyph {
   position: relative;
   display: block;
   width: 16px;
   height: 16px;
+}
+
+.artifact-glyph {
+  border: 1.6px solid currentColor;
+  border-radius: 999px;
+}
+
+.artifact-glyph::before,
+.artifact-glyph::after {
+  position: absolute;
+  content: "";
+}
+
+.artifact-glyph::before {
+  left: 4px;
+  top: 4px;
+  width: 6px;
+  height: 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.artifact-glyph::after {
+  left: 7px;
+  top: 1px;
+  bottom: 1px;
+  border-left: 1.4px solid currentColor;
+  opacity: 0.5;
 }
 
 .copy-glyph::before,
@@ -626,6 +753,30 @@ h2 {
   height: 4px;
   background: currentColor;
   content: "";
+}
+
+.clear-glyph::before,
+.clear-glyph::after {
+  position: absolute;
+  content: "";
+}
+
+.clear-glyph::before {
+  left: 2px;
+  top: 7px;
+  width: 12px;
+  height: 5px;
+  border: 1.6px solid currentColor;
+  border-radius: 2px;
+  transform: rotate(-28deg);
+}
+
+.clear-glyph::after {
+  left: 4px;
+  right: 3px;
+  bottom: 2px;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.58;
 }
 
 #result-output {

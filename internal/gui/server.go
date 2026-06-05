@@ -75,6 +75,7 @@ func (s *server) routes() {
 	s.mux.HandleFunc("/api/digest", s.api(s.digest))
 	s.mux.HandleFunc("/api/hmac", s.api(s.hmac))
 	s.mux.HandleFunc("/api/entropy", s.api(s.entropy))
+	s.mux.HandleFunc("/api/profile", s.api(s.profile))
 	s.mux.HandleFunc("/api/random", s.api(s.random))
 	s.mux.HandleFunc("/api/xor", s.api(s.xor))
 	s.mux.HandleFunc("/api/keygen", s.api(s.keygen))
@@ -161,6 +162,7 @@ func (s *server) algorithms(w http.ResponseWriter, _ *http.Request) error {
 			"iterations": sigilcrypto.DefaultPBKDF2Iterations,
 		},
 		"signatures": []string{"Ed25519"},
+		"research":   []string{"profile"},
 	})
 }
 
@@ -210,6 +212,21 @@ func (s *server) entropy(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return encode(w, sigilcrypto.AnalyzeBytes(data))
+}
+
+func (s *server) profile(w http.ResponseWriter, r *http.Request) error {
+	var req profileRequest
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	data, err := sigilcrypto.DecodeInput(req.Data, req.Encoding)
+	if err != nil {
+		return err
+	}
+	return encode(w, sigilcrypto.ProfileBytes(data, sigilcrypto.ProfileOptions{
+		MaxLag:     req.MaxLag,
+		MaxKeySize: req.MaxKeySize,
+	}))
 }
 
 func (s *server) random(w http.ResponseWriter, r *http.Request) error {
@@ -402,6 +419,13 @@ type macRequest struct {
 	Algorithm   string `json:"algorithm"`
 }
 
+type profileRequest struct {
+	Data       string `json:"data"`
+	Encoding   string `json:"encoding"`
+	MaxLag     int    `json:"maxLag"`
+	MaxKeySize int    `json:"maxKeySize"`
+}
+
 type randomRequest struct {
 	Kind   string `json:"kind"`
 	Size   int    `json:"size"`
@@ -497,6 +521,15 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
             <circle class="mark-dot" cx="16" cy="9.2" r="1.65"/>
             <circle class="mark-dot" cx="10.15" cy="19.4" r="1.65"/>
             <circle class="mark-dot" cx="21.85" cy="19.4" r="1.65"/>
+            <g class="mark-beacon" data-a1z26="14-19-01" data-sha256="259862d88d60c30919f81dab99e358c80625af766f271d28ab6137ab94882098">
+              <path class="mark-pulse" d="M8.9 8.15h2.15"/>
+              <circle class="mark-spark" cx="12.25" cy="7.95" r=".42"/>
+              <circle class="mark-spark" cx="14.95" cy="6.4" r=".42"/>
+              <circle class="mark-spark" cx="16" cy="5.85" r=".42"/>
+              <circle class="mark-spark" cx="17.05" cy="6.4" r=".42"/>
+              <circle class="mark-spark" cx="19.75" cy="7.95" r=".42"/>
+              <path class="mark-pulse" d="M20.95 8.15h2.15"/>
+            </g>
           </svg>
         </span>
         <span>Sigil</span>
@@ -516,6 +549,7 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
         <div class="engine-strip" aria-label="Engine status">
           <span>Go standard crypto</span>
           <span>Session guarded</span>
+          <span class="cipher-beacon" title="A1Z26 14-19-01 / SHA-256 beacon 259862d88d60">FM-259862</span>
         </div>
       </header>
       <section class="work-grid">
@@ -529,11 +563,17 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               <p id="result-meta">Awaiting operation</p>
             </div>
             <div class="result-actions">
+              <button class="icon-button" id="copy-artifact" type="button" title="Copy primary output" aria-label="Copy primary output" disabled>
+                <span class="artifact-glyph" aria-hidden="true"></span>
+              </button>
               <button class="icon-button" id="copy-result" type="button" title="Copy result" aria-label="Copy result">
                 <span class="copy-glyph" aria-hidden="true"></span>
               </button>
-              <button class="icon-button" id="save-result" type="button" title="Save result" aria-label="Save result">
+              <button class="icon-button" id="save-result" type="button" title="Download JSON" aria-label="Download JSON">
                 <span class="save-glyph" aria-hidden="true"></span>
+              </button>
+              <button class="icon-button" id="clear-result" type="button" title="Clear result" aria-label="Clear result">
+                <span class="clear-glyph" aria-hidden="true"></span>
               </button>
             </div>
           </div>

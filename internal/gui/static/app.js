@@ -10,20 +10,27 @@ const resultMeta = document.getElementById("result-meta");
 const resultSummaryPanel = document.getElementById("result-summary");
 const activityLog = document.getElementById("activity-log");
 const analysisStrip = document.getElementById("analysis-strip");
+const copyArtifactButton = document.getElementById("copy-artifact");
 const copyButton = document.getElementById("copy-result");
 const saveButton = document.getElementById("save-result");
+const clearResultButton = document.getElementById("clear-result");
+
+const maxClientPayloadBytes = 24 * 1024 * 1024;
+const textEncoder = new TextEncoder();
 
 let activeTool = "digest";
 let lastResult = `{
   "status": "ready",
   "scope": "local"
 }`;
+let lastPrimaryArtifact = null;
 
 const tools = [
   { id: "digest", label: "Digest", subtitle: "SHA-2 and SHA-3 message fingerprints", group: "Analysis", icon: "hash" },
   { id: "hmac", label: "HMAC", subtitle: "Keyed authentication tags", group: "Analysis", icon: "mac" },
   { id: "entropy", label: "Entropy", subtitle: "Byte distribution and randomness inspection", group: "Analysis", icon: "entropy" },
   { id: "xor", label: "XOR", subtitle: "Fixed and repeating XOR transforms", group: "Analysis", icon: "xor" },
+  { id: "profile", label: "Profile", subtitle: "Cryptanalytic structure and periodicity triage", group: "Research", icon: "profile" },
   { id: "random", label: "Random", subtitle: "CSPRNG bytes and passphrases", group: "Material", icon: "random" },
   { id: "keys", label: "Keys", subtitle: "Ed25519 key material", group: "Material", icon: "key" },
   { id: "sign", label: "Sign", subtitle: "Ed25519 signatures", group: "Signatures", icon: "sign" },
@@ -34,8 +41,11 @@ const tools = [
 function init() {
   renderNavigation();
   renderTool(activeTool);
-  copyButton.addEventListener("click", copyResult);
-  saveButton.addEventListener("click", saveResult);
+  renderReadyResult();
+  copyArtifactButton?.addEventListener("click", copyPrimaryArtifact);
+  copyButton?.addEventListener("click", copyResult);
+  saveButton?.addEventListener("click", saveResult);
+  clearResultButton?.addEventListener("click", clearResult);
   logActivity("Sigil session ready");
 }
 
@@ -83,7 +93,6 @@ function renderTool(id) {
     event.preventDefault();
     await runActiveTool();
   };
-  attachFileLoaders();
 }
 
 function toolFields(id) {
@@ -106,6 +115,13 @@ function toolFields(id) {
   } else if (id === "entropy") {
     stack.append(sectionBlock("Sample", [dataField("Bytes or file", "data", "encoding")]));
     stack.append(actionRow("Analyze entropy"));
+  } else if (id === "profile") {
+    stack.append(sectionBlock("Sample", [dataField("Bytes or file", "data", "encoding")]));
+    stack.append(sectionBlock("Parameters", [
+      numberField("Max lag", "maxLag", 32, 1, 256),
+      numberField("Max key size", "maxKeySize", 40, 2, 256)
+    ]));
+    stack.append(actionRow("Profile sample"));
   } else if (id === "random") {
     stack.append(sectionBlock("Material", [
       selectField("Kind", "kind", ["bytes", "password"], "bytes"),
@@ -191,10 +207,9 @@ function dataField(labelText, dataId, encodingId) {
   const wrap = document.createElement("div");
   wrap.className = "wide-field";
 
-  const label = document.createElement("label");
-  label.htmlFor = dataId;
-  label.textContent = labelText;
-  wrap.appendChild(label);
+  const header = fieldHeader(labelText, dataId, true);
+  const meter = header.querySelector(".input-meter");
+  wrap.appendChild(header);
 
   const drop = document.createElement("div");
   drop.className = "drop-row";
@@ -202,6 +217,18 @@ function dataField(labelText, dataId, encodingId) {
   const fileStatus = document.createElement("span");
   fileStatus.className = "file-status";
   fileStatus.textContent = "No file loaded";
+
+  const dropActions = document.createElement("div");
+  dropActions.className = "drop-actions";
+
+  const clearButton = smallIconButton("Clear field", "clear");
+  clearButton.addEventListener("click", () => {
+    textarea.value = "";
+    file.value = "";
+    loadedValue = "";
+    fileStatus.textContent = "No file loaded";
+    refreshInputMeter(textarea, meter, encoding);
+  });
 
   const fileLabel = document.createElement("label");
   fileLabel.className = "file-button";
@@ -213,7 +240,8 @@ function dataField(labelText, dataId, encodingId) {
   file.dataset.encoding = encodingId;
   fileLabel.appendChild(file);
 
-  drop.append(fileStatus, fileLabel);
+  dropActions.append(clearButton, fileLabel);
+  drop.append(fileStatus, dropActions);
   wrap.appendChild(drop);
 
   const textarea = document.createElement("textarea");
@@ -226,21 +254,53 @@ function dataField(labelText, dataId, encodingId) {
 
   const encoding = selectField("Input encoding", encodingId, ["text", "hex", "base64"], "text");
   wrap.appendChild(encoding);
+
+  let loadedValue = "";
+  const encodingSelect = encoding.querySelector("select");
+  textarea.addEventListener("input", () => {
+    if (!textarea.value) {
+      fileStatus.textContent = "No file loaded";
+    } else if (!loadedValue || textarea.value !== loadedValue) {
+      fileStatus.textContent = "Manual buffer";
+    }
+    refreshInputMeter(textarea, meter, encoding);
+  });
+  encodingSelect.addEventListener("change", () => refreshInputMeter(textarea, meter, encoding));
+  file.addEventListener("change", async () => {
+    const selectedFile = file.files[0];
+    if (!selectedFile) return;
+    const bytes = new Uint8Array(await selectedFile.arrayBuffer());
+    loadedValue = bytesToBase64(bytes);
+    textarea.value = loadedValue;
+    encodingSelect.value = "base64";
+    fileStatus.textContent = `${selectedFile.name} | ${formatBytes(bytes.length)}`;
+    refreshInputMeter(textarea, meter, encoding);
+  });
+  refreshInputMeter(textarea, meter, encoding);
   return wrap;
 }
 
 function textField(labelText, id, kind) {
   const wrap = document.createElement("div");
   wrap.className = "wide-field";
-  const label = document.createElement("label");
-  label.htmlFor = id;
-  label.textContent = labelText;
+  const isTextarea = kind === "textarea";
+  const header = fieldHeader(labelText, id, isTextarea);
   const input = kind === "textarea" ? document.createElement("textarea") : document.createElement("input");
   input.id = id;
   input.name = id;
   input.spellcheck = false;
   input.autocomplete = "off";
-  wrap.append(label, input);
+  wrap.append(header, input);
+  if (isTextarea) {
+    const meter = header.querySelector(".input-meter");
+    const clearButton = header.querySelector(".small-icon-button");
+    input.addEventListener("input", () => refreshTextMeter(input, meter));
+    clearButton.addEventListener("click", () => {
+      input.value = "";
+      refreshTextMeter(input, meter);
+    });
+    refreshTextMeter(input, meter);
+  }
   return wrap;
 }
 
@@ -257,6 +317,45 @@ function secretField(labelText, id) {
   input.autocomplete = "off";
   wrap.append(label, input);
   return wrap;
+}
+
+function fieldHeader(labelText, id, withMeter) {
+  const header = document.createElement("div");
+  header.className = "field-header";
+  const label = document.createElement("label");
+  label.htmlFor = id;
+  label.textContent = labelText;
+  header.appendChild(label);
+  if (withMeter) {
+    const actions = document.createElement("div");
+    actions.className = "field-actions";
+    const meter = document.createElement("span");
+    meter.className = "input-meter";
+    meter.textContent = "0 bytes";
+    actions.appendChild(meter);
+    if (id !== "data") {
+      actions.appendChild(smallIconButton("Clear field", "clear"));
+    }
+    header.appendChild(actions);
+  }
+  return header;
+}
+
+function smallIconButton(label, kind) {
+  const button = document.createElement("button");
+  button.className = "small-icon-button";
+  button.type = "button";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.appendChild(glyph(kind));
+  return button;
+}
+
+function glyph(kind) {
+  const span = document.createElement("span");
+  span.className = `${kind}-glyph`;
+  span.setAttribute("aria-hidden", "true");
+  return span;
 }
 
 function selectField(labelText, id, options, selected) {
@@ -307,31 +406,20 @@ function actionRow(label) {
   return row;
 }
 
-function attachFileLoaders() {
-  form.querySelectorAll("input[type='file']").forEach((input) => {
-    input.addEventListener("change", async () => {
-      const file = input.files[0];
-      if (!file) return;
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const target = document.getElementById(input.dataset.target);
-      const encoding = document.getElementById(input.dataset.encoding);
-      target.value = bytesToBase64(bytes);
-      encoding.value = "base64";
-      const status = input.closest(".drop-row").querySelector(".file-status");
-      status.textContent = `${file.name} | ${bytes.length} bytes`;
-    });
-  });
-}
-
 async function runActiveTool() {
   const payload = collectPayload();
   const endpoint = activeTool === "seal" && payload.sealAction === "open" ? "/api/open" : `/api/${activeTool}`;
   if (payload.sealAction) delete payload.sealAction;
+  const payloadBytes = textBytes(JSON.stringify(payload));
+  if (payloadBytes > maxClientPayloadBytes) {
+    showError(new Error(`Request is ${formatBytes(payloadBytes)}; limit is ${formatBytes(maxClientPayloadBytes)}`));
+    return;
+  }
   setBusy(true);
   try {
     const result = await postJSON(endpoint, payload);
     showResult(result, activeTool);
-    logActivity(`${tools.find((item) => item.id === activeTool).label} complete`);
+    logActivity(`${tools.find((item) => item.id === activeTool).label} complete | ${formatBytes(payloadBytes)} request`);
   } catch (error) {
     showError(error);
   } finally {
@@ -349,6 +437,9 @@ function collectPayload() {
   }
   if (activeTool === "entropy") {
     return { data: value("data"), encoding: value("encoding") };
+  }
+  if (activeTool === "profile") {
+    return { data: value("data"), encoding: value("encoding"), maxLag: Number(value("maxLag")), maxKeySize: Number(value("maxKeySize")) };
   }
   if (activeTool === "random") {
     return { kind: value("kind"), size: Number(value("size")), output: value("output") };
@@ -394,24 +485,50 @@ async function postJSON(endpoint, payload) {
 
 function showResult(data, toolId) {
   lastResult = JSON.stringify(data, null, 2);
+  lastPrimaryArtifact = primaryArtifact(data, toolId);
   output.textContent = lastResult;
-  resultMeta.textContent = resultSummary(data, toolId);
+  resultMeta.textContent = `${resultSummary(data, toolId)} | ${timeStamp()}`;
   renderResultSummary(data, toolId);
   renderChips(data, toolId);
+  syncResultActions();
 }
 
 function showError(error) {
   const data = { error: error.message };
   lastResult = JSON.stringify(data, null, 2);
+  lastPrimaryArtifact = null;
   output.textContent = lastResult;
-  resultMeta.textContent = "Operation rejected";
+  resultMeta.textContent = `Operation rejected | ${timeStamp()}`;
   renderSummaryItems([["Status", "Rejected"], ["Reason", error.message]], "bad");
   analysisStrip.textContent = "";
   const chip = document.createElement("span");
   chip.className = "chip bad";
   chip.textContent = "Rejected";
   analysisStrip.appendChild(chip);
+  syncResultActions();
   logActivity("Operation rejected");
+}
+
+function renderReadyResult() {
+  lastResult = `{
+  "status": "ready",
+  "scope": "local"
+}`;
+  lastPrimaryArtifact = null;
+  output.textContent = lastResult;
+  resultMeta.textContent = "Awaiting operation";
+  renderSummaryItems([["Status", "Ready"], ["Scope", "Local process"], ["Output", "JSON"]]);
+  analysisStrip.textContent = "";
+  const chip = document.createElement("span");
+  chip.className = "chip strong";
+  chip.textContent = "Session guarded";
+  analysisStrip.appendChild(chip);
+  syncResultActions();
+}
+
+function clearResult() {
+  renderReadyResult();
+  logActivity("Result cleared");
 }
 
 function renderResultSummary(data, toolId) {
@@ -428,6 +545,13 @@ function renderResultSummary(data, toolId) {
       ["Unique", `${data.uniqueBytes} bytes`],
       ["Chi-square", String(data.chiSquare)],
       ["Assessment", data.assessment]
+    ]);
+  } else if (toolId === "profile") {
+    renderSummaryItems([
+      ["Assessment", data.assessment],
+      ["Entropy", `${data.entropy.shannonBitsPerByte} bits/byte`],
+      ["IOC", String(data.byteStats.normalizedCoincidence)],
+      ["Signals", String(data.signals.length)]
     ]);
   } else if (toolId === "random") {
     renderSummaryItems(data.kind === "password" ? [
@@ -497,6 +621,43 @@ function renderSummaryItems(items, tone = "") {
   }
 }
 
+function primaryArtifact(data, toolId) {
+  if (data.error) return null;
+  if ((toolId === "digest" || toolId === "hmac") && data.hex) {
+    return artifact(toolId === "digest" ? "Digest hex" : "MAC hex", data.hex, `sigil-${toolId}-${data.algorithm.name}.txt`);
+  }
+  if (toolId === "random") {
+    if (data.kind === "password") {
+      return artifact("Password", data.password, "sigil-password.txt");
+    }
+    return artifact("Random value", data.value, `sigil-random-${data.encoding || "hex"}.txt`);
+  }
+  if (toolId === "xor" && data.value) {
+    return artifact("XOR output", data.value, `sigil-xor-${data.encoding}.txt`);
+  }
+  if (toolId === "profile") {
+    return artifact("Profile report", JSON.stringify(data, null, 2), "sigil-profile.json");
+  }
+  if (toolId === "keys" && data.publicPem) {
+    return artifact("Public key PEM", data.publicPem, "sigil-ed25519-public.pem");
+  }
+  if (toolId === "sign" && data.signature) {
+    return artifact("Signature base64", data.signature, "sigil-signature.txt");
+  }
+  if (toolId === "verify") {
+    return artifact("Verification verdict", data.valid ? "valid" : "invalid", "sigil-verify.txt");
+  }
+  if (toolId === "seal") {
+    if (data.sealedBase64) return artifact("Sealed envelope", data.sealedBase64, "sigil-envelope.b64");
+    if (data.output) return artifact("Opened output", data.output, `sigil-opened-${data.encoding || "base64"}.txt`);
+  }
+  return null;
+}
+
+function artifact(label, value, filename) {
+  return { label, value, filename };
+}
+
 function toolIcon(kind) {
   const icon = document.createElement("span");
   icon.className = "tool-icon";
@@ -531,6 +692,11 @@ const iconShapes = {
     { tag: "circle", attrs: { cx: "12", cy: "3", r: "1.4" } },
     { tag: "circle", attrs: { cx: "18", cy: "9", r: "1.4" } }
   ],
+  profile: [
+    { tag: "path", attrs: { d: "M4 18V6M4 18h16" } },
+    { tag: "path", attrs: { d: "M7 15c1.2-4 2.4-4 3.6 0s2.4 4 3.6 0 2.4-4 3.8-.5" } },
+    { tag: "path", attrs: { d: "M7 9h10M7 12h4" } }
+  ],
   xor: [
     { tag: "path", attrs: { d: "M6 6l12 12M18 6 6 18" } },
     { tag: "circle", attrs: { cx: "12", cy: "12", r: "8" } }
@@ -563,6 +729,7 @@ function resultSummary(data, toolId) {
   if (data.error) return "Rejected";
   if (toolId === "digest" || toolId === "hmac") return `${data.algorithm.name} | ${data.size} bytes`;
   if (toolId === "entropy") return `${data.size} bytes | ${data.shannonBitsPerByte} bits per byte`;
+  if (toolId === "profile") return `${data.size} bytes | ${data.assessment}`;
   if (toolId === "random") return data.kind === "password" ? `${data.length} characters` : `${data.size} bytes`;
   if (toolId === "xor") return `${data.size} bytes | ${data.encoding}`;
   if (toolId === "keys") return "Ed25519 key pair";
@@ -582,6 +749,14 @@ function renderChips(data, toolId) {
     chips.push(["strong", `${data.uniqueBytes} unique bytes`]);
     chips.push([data.shannonBitsPerByte >= 7.75 ? "strong" : "warn", `${data.shannonBitsPerByte} bits per byte`]);
     chips.push(["", data.assessment]);
+  } else if (toolId === "profile") {
+    const keyCandidates = data.repeatKeyCandidates || [];
+    chips.push(["strong", data.assessment]);
+    chips.push([data.entropy.shannonBitsPerByte >= 7.75 ? "strong" : "warn", `${data.entropy.shannonBitsPerByte} bits per byte`]);
+    chips.push(["", `IOC ${data.byteStats.normalizedCoincidence}`]);
+    if (data.size >= 64 && keyCandidates.length && keyCandidates[0].normalizedHammingDistance <= 0.42) {
+      chips.push(["warn", `key ${keyCandidates[0].keySize} hint`]);
+    }
   } else if (toolId === "random") {
     chips.push(["strong", "CSPRNG"]);
     chips.push(["", data.encoding || "password"]);
@@ -624,26 +799,112 @@ function setBusy(isBusy) {
   }
 }
 
+function syncResultActions() {
+  const artifactLabel = lastPrimaryArtifact ? lastPrimaryArtifact.label : "";
+  if (copyArtifactButton) {
+    copyArtifactButton.disabled = !lastPrimaryArtifact;
+    copyArtifactButton.title = lastPrimaryArtifact ? `Copy ${artifactLabel}` : "Copy primary output";
+    copyArtifactButton.setAttribute("aria-label", copyArtifactButton.title);
+  }
+  if (saveButton) {
+    saveButton.title = lastPrimaryArtifact ? `Save ${artifactLabel}` : "Download JSON";
+    saveButton.setAttribute("aria-label", saveButton.title);
+  }
+}
+
+async function copyPrimaryArtifact() {
+  if (!lastPrimaryArtifact) {
+    logActivity("No primary artifact");
+    return;
+  }
+  await copyText(lastPrimaryArtifact.value, `${lastPrimaryArtifact.label} copied`, "Artifact copy unavailable");
+}
+
 async function copyResult() {
+  await copyText(lastResult, "Full JSON copied", "Copy unavailable");
+}
+
+async function copyText(value, successMessage, failureMessage) {
   try {
-    await navigator.clipboard.writeText(lastResult);
-    logActivity("Result copied");
+    await navigator.clipboard.writeText(value);
+    logActivity(successMessage);
   } catch {
-    logActivity("Copy unavailable");
+    logActivity(failureMessage);
   }
 }
 
 function saveResult() {
-  const blob = new Blob([lastResult, "\n"], { type: "application/json" });
+  if (lastPrimaryArtifact) {
+    downloadText(`${lastPrimaryArtifact.value}\n`, "text/plain", lastPrimaryArtifact.filename);
+    logActivity(`${lastPrimaryArtifact.label} saved`);
+    return;
+  }
+  downloadText(`${lastResult}\n`, "application/json", `sigil-${activeTool}-result.json`);
+  logActivity("Result saved");
+}
+
+function downloadText(value, type, filename) {
+  const blob = new Blob([value], { type });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "sigil-result.json";
+  anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-  logActivity("Result saved");
+}
+
+function refreshInputMeter(input, meter, encodingWrap) {
+  const encoding = encodingWrap.querySelector("select").value;
+  const estimate = estimateInputBytes(input.value, encoding);
+  updateMeter(meter, estimate);
+}
+
+function refreshTextMeter(input, meter) {
+  updateMeter(meter, { bytes: textBytes(input.value), label: `${formatBytes(textBytes(input.value))} text` });
+}
+
+function updateMeter(meter, estimate) {
+  meter.textContent = estimate.label;
+  meter.classList.toggle("bad", estimate.tone === "bad");
+  meter.classList.toggle("warn", estimate.bytes > maxClientPayloadBytes * 0.8);
+}
+
+function estimateInputBytes(value, encoding) {
+  if (!value) return { bytes: 0, label: "0 B" };
+  if (encoding === "hex") {
+    const clean = value.replace(/[\s:]/g, "");
+    if (/[^0-9a-fA-F]/.test(clean)) return { bytes: 0, label: "invalid hex", tone: "bad" };
+    if (clean.length % 2 !== 0) return { bytes: 0, label: "odd hex", tone: "bad" };
+    const bytes = clean.length / 2;
+    return { bytes, label: `${formatBytes(bytes)} hex` };
+  }
+  if (encoding === "base64") {
+    const clean = value.trim();
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 === 1) {
+      return { bytes: 0, label: "invalid base64", tone: "bad" };
+    }
+    const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+    const bytes = Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+    return { bytes, label: `${formatBytes(bytes)} base64` };
+  }
+  const bytes = textBytes(value);
+  return { bytes, label: `${formatBytes(bytes)} text` };
+}
+
+function textBytes(value) {
+  return textEncoder.encode(value).length;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MiB`;
+}
+
+function timeStamp() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function bytesToBase64(bytes) {

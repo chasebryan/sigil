@@ -42,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return randomCommand(args[1:], stdout)
 	case "entropy":
 		return entropyCommand(args[1:], stdout)
+	case "profile":
+		return profileCommand(args[1:], stdout)
 	case "xor":
 		return xorCommand(args[1:], stdout)
 	case "keygen":
@@ -150,6 +152,25 @@ func entropyCommand(args []string, stdout io.Writer) error {
 		return err
 	}
 	return writeJSON(stdout, sigilcrypto.AnalyzeBytes(data))
+}
+
+func profileCommand(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	encodingName := fs.String("encoding", "text", "input encoding: text, hex, base64")
+	maxLag := fs.Int("max-lag", 32, "maximum autocorrelation lag")
+	maxKeySize := fs.Int("max-key-size", 40, "maximum repeating-key candidate size")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	data, err := readEncodedInput(fs.Arg(0), *encodingName)
+	if err != nil {
+		return err
+	}
+	return writeJSON(stdout, sigilcrypto.ProfileBytes(data, sigilcrypto.ProfileOptions{
+		MaxLag:     *maxLag,
+		MaxKeySize: *maxKeySize,
+	}))
 }
 
 func xorCommand(args []string, stdout io.Writer) error {
@@ -396,6 +417,7 @@ Usage:
   sigil hmac [-alg sha256] -key <material> [-key-encoding hex] [file|-]
   sigil random [-bytes 32|-password 32] [-out hex|base64]
   sigil entropy [-encoding text|hex|base64] [value|@file|-]
+  sigil profile [-encoding text|hex|base64] [-max-lag 32] [-max-key-size 40] [value|@file|-]
   sigil xor -left <value> -right <value> [-mode fixed|repeating] [-encoding hex]
   sigil keygen
   sigil sign -key private.pem [-encoding text|hex|base64] [value|@file|-]

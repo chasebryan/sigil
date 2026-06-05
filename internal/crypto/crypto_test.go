@@ -116,6 +116,48 @@ func TestEntropyReport(t *testing.T) {
 	}
 }
 
+func TestProfileBytesReportsBitAndCoincidenceStats(t *testing.T) {
+	report := ProfileBytes([]byte{0xff, 0x00, 0xff, 0x00}, ProfileOptions{})
+	if report.Size != 4 {
+		t.Fatalf("profile size mismatch: %d", report.Size)
+	}
+	if report.BitStats.OneRatio != 0.5 {
+		t.Fatalf("one ratio mismatch: %f", report.BitStats.OneRatio)
+	}
+	if report.BitStats.LongestOneBitRun != 8 || report.BitStats.LongestZeroBitRun != 8 {
+		t.Fatalf("unexpected bit runs: ones=%d zeros=%d", report.BitStats.LongestOneBitRun, report.BitStats.LongestZeroBitRun)
+	}
+	if report.ByteStats.UniqueBytes != 2 {
+		t.Fatalf("unique byte mismatch: %d", report.ByteStats.UniqueBytes)
+	}
+	if len(report.Autocorrelation) == 0 {
+		t.Fatal("expected autocorrelation entries")
+	}
+}
+
+func TestProfileBytesDetectsRepeatedBlocks(t *testing.T) {
+	block := []byte("0123456789abcdef")
+	data := bytes.Repeat(block, 6)
+	report := ProfileBytes(data, ProfileOptions{})
+
+	var sixteen BlockRepeatReport
+	for _, item := range report.BlockRepeats {
+		if item.BlockSize == 16 {
+			sixteen = item
+			break
+		}
+	}
+	if sixteen.Blocks != 6 {
+		t.Fatalf("16-byte block count mismatch: %d", sixteen.Blocks)
+	}
+	if sixteen.DuplicateBlocks != 5 {
+		t.Fatalf("duplicate block count mismatch: %d", sixteen.DuplicateBlocks)
+	}
+	if report.Assessment != "repeated-block structure candidate" {
+		t.Fatalf("unexpected assessment: %q", report.Assessment)
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) {
